@@ -340,7 +340,8 @@ app.get("/random-image", async (c) => {
 
 // ─── Collage ──────────────────────────────────────────────────────
 
-const TILE_SIZE = 300
+const TILE_SIZE = 600
+const COLLAGE_QUALITY = 92
 
 app.get("/collage", async (c) => {
   const countParam = c.req.query("count") || "4"
@@ -394,7 +395,7 @@ app.get("/collage", async (c) => {
     create: { width: canvasW, height: canvasH, channels: 3, background: { r: 20, g: 20, b: 30 } },
   })
     .composite(composites)
-    .jpeg({ quality: 85 })
+    .jpeg({ quality: COLLAGE_QUALITY })
     .toBuffer()
 
   return new Response(canvas, {
