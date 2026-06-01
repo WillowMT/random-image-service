@@ -344,17 +344,46 @@ const TILE_SIZE = 600
 const COLLAGE_QUALITY = 92
 
 app.get("/collage", async (c) => {
-  const countParam = c.req.query("count") || "4"
   const explicitZip = c.req.query("zip") || undefined
-  const count = parseInt(countParam, 10)
 
-  if (isNaN(count) || count < 1 || count > 30) {
-    return c.json({ error: "count must be between 1 and 30" }, 400)
+  // Determine count from grid / rows+cols / count param
+  let rows: number, cols: number
+
+  const gridParam = c.req.query("grid")
+  const rowsParam = c.req.query("rows")
+  const colsParam = c.req.query("cols")
+  const countParam = c.req.query("count")
+
+  if (gridParam) {
+    // "3x4" → rows=3, cols=4
+    const match = gridParam.match(/^(\d+)\s*x\s*(\d+)$/i)
+    if (!match) {
+      return c.json({ error: "grid must be like '3x3', '2x4', etc." }, 400)
+    }
+    rows = parseInt(match[1], 10)
+    cols = parseInt(match[2], 10)
+  } else if (rowsParam || colsParam) {
+    rows = rowsParam ? parseInt(rowsParam, 10) : 1
+    cols = colsParam ? parseInt(colsParam, 10) : 1
+  } else {
+    // Use count (default 4) and auto-calculate grid
+    const count = parseInt(countParam || "4", 10)
+    if (isNaN(count) || count < 1 || count > 30) {
+      return c.json({ error: "count must be between 1 and 30" }, 400)
+    }
+    cols = Math.ceil(Math.sqrt(count))
+    rows = Math.ceil(count / cols)
   }
+
+  if (isNaN(rows) || isNaN(cols) || rows < 1 || cols < 1 || rows * cols > 30) {
+    return c.json({ error: "grid dimensions invalid (max 30 total cells)" }, 400)
+  }
+
+  const total = rows * cols
 
   // Collect N random images
   const picked: Array<{ data: Uint8Array; path: string }> = []
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < total; i++) {
     const { selection, error } = await selectRandomImage(explicitZip)
     if (error) {
       if (i > 0) break // return partial collage if we have at least one
@@ -369,9 +398,7 @@ app.get("/collage", async (c) => {
     return c.json({ error: "No images could be read" }, 500)
   }
 
-  // Compute grid dimensions
-  const cols = Math.ceil(Math.sqrt(picked.length))
-  const rows = Math.ceil(picked.length / cols)
+  // Use the explicit grid dimensions (not auto)
   const canvasW = cols * TILE_SIZE
   const canvasH = rows * TILE_SIZE
 
