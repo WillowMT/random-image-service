@@ -403,7 +403,315 @@ app.get("/collage", async (c) => {
   })
 })
 
-// ─── List ZIPs and their contents ─────────────────────────────────
+// ─── Collage App (SPA) ────────────────────────────────────────────
+
+const COLLAGE_APP_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📸 Collage Magic</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    padding: 2rem;
+    overflow-x: hidden;
+  }
+
+  /* Floating orbs */
+  body::before, body::after {
+    content: '';
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(80px);
+    z-index: 0;
+    animation: float 10s ease-in-out infinite alternate;
+  }
+  body::before {
+    width: 400px; height: 400px;
+    background: rgba(255, 107, 107, 0.25);
+    top: -100px; left: -100px;
+  }
+  body::after {
+    width: 500px; height: 500px;
+    background: rgba(78, 205, 196, 0.2);
+    bottom: -150px; right: -150px;
+    animation-delay: -5s;
+  }
+
+  @keyframes float {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(60px, 40px) scale(1.1); }
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2rem;
+    width: 100%;
+    max-width: 700px;
+  }
+
+  h1 {
+    font-size: 2.2rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #f093fb, #f5576c, #4facfe);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-align: center;
+    letter-spacing: -0.5px;
+    animation: titleGlow 3s ease-in-out infinite alternate;
+  }
+
+  @keyframes titleGlow {
+    0% { filter: brightness(1); }
+    100% { filter: brightness(1.3); }
+  }
+
+  .collage-wrapper {
+    position: relative;
+    width: 100%;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08);
+    transition: box-shadow 0.4s;
+  }
+  .collage-wrapper:hover {
+    box-shadow: 0 25px 70px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.15);
+  }
+
+  #collage-img {
+    width: 100%;
+    height: auto;
+    display: block;
+    transition: opacity 0.4s ease;
+  }
+  #collage-img.loading {
+    opacity: 0.3;
+  }
+
+  .loader {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .loader.active {
+    opacity: 1;
+  }
+  .loader .spinner {
+    width: 50px; height: 50px;
+    border: 4px solid rgba(255,255,255,0.1);
+    border-top-color: #f5576c;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .btn {
+    position: relative;
+    padding: 1rem 3rem;
+    font-size: 1.2rem;
+    font-weight: 700;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    color: white;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+    letter-spacing: 0.5px;
+    overflow: hidden;
+  }
+
+  .btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, #764ba2, #f093fb);
+    opacity: 0;
+    transition: opacity 0.3s;
+    border-radius: 50px;
+  }
+
+  .btn:hover {
+    transform: translateY(-3px) scale(1.03);
+    box-shadow: 0 12px 35px rgba(102, 126, 234, 0.5);
+  }
+  .btn:hover::before { opacity: 1; }
+
+  .btn:active {
+    transform: translateY(0) scale(0.97);
+  }
+
+  .btn span, .btn svg {
+    position: relative;
+    z-index: 1;
+  }
+
+  .btn svg {
+    width: 24px; height: 24px;
+    transition: transform 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  }
+  .btn:active svg {
+    transform: rotate(360deg);
+  }
+
+  .btn.spinning svg {
+    animation: btnSpin 0.6s ease-in-out;
+  }
+  @keyframes btnSpin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  /* Tile pop-in animation when image loads */
+  @keyframes popIn {
+    0% { transform: scale(0.8); opacity: 0; }
+    60% { transform: scale(1.05); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  /* Confetti burst */
+  .confetti-container {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 100;
+    overflow: hidden;
+  }
+  .confetti {
+    position: absolute;
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    animation: confettiFall linear forwards;
+  }
+  @keyframes confettiFall {
+    0% { opacity: 1; transform: translateY(0) rotate(0deg) scale(1); }
+    100% { opacity: 0; transform: translateY(100vh) rotate(720deg) scale(0.3); }
+  }
+
+  .footer {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.3);
+    margin-top: 1rem;
+  }
+
+  @media (max-width: 500px) {
+    h1 { font-size: 1.5rem; }
+    .btn { padding: 0.8rem 2rem; font-size: 1rem; }
+    body { padding: 1rem; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>✨ Collage Magic</h1>
+
+  <div class="collage-wrapper">
+    <img id="collage-img" class="loading" src="/collage?count=9&_t=${Date.now()}" alt="Collage">
+    <div class="loader active" id="loader">
+      <div class="spinner"></div>
+    </div>
+  </div>
+
+  <button class="btn" id="shuffle-btn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="16 3 21 3 21 8"></polyline>
+      <line x1="4" y1="20" x2="21" y2="3"></line>
+      <polyline points="21 16 21 21 16 21"></polyline>
+      <line x1="15" y1="15" x2="21" y2="21"></line>
+      <line x1="4" y1="4" x2="9" y2="9"></line>
+    </svg>
+    <span>Shuffle!</span>
+  </button>
+
+  <div class="footer">🎞 {{IMAGE_COUNT}} images in the vault</div>
+</div>
+
+<script>
+  const img = document.getElementById('collage-img');
+  const loader = document.getElementById('loader');
+  const btn = document.getElementById('shuffle-btn');
+
+  // Confetti colors
+  const COLORS = ['#f5576c','#667eea','#f093fb','#4facfe','#43e97b','#fa709a','#fee140','#a18cd1'];
+
+  function burstConfetti() {
+    const container = document.createElement('div');
+    container.className = 'confetti-container';
+    for (let i = 0; i < 60; i++) {
+      const el = document.createElement('div');
+      el.className = 'confetti';
+      el.style.left = Math.random() * 100 + '%';
+      el.style.background = COLORS[Math.floor(Math.random() * COLORS.length)];
+      el.style.width = (Math.random() * 8 + 4) + 'px';
+      el.style.height = (Math.random() * 8 + 4) + 'px';
+      el.style.animationDuration = (Math.random() * 2 + 1.5) + 's';
+      el.style.animationDelay = (Math.random() * 0.5) + 's';
+      el.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+      container.appendChild(el);
+    }
+    document.body.appendChild(container);
+    setTimeout(() => container.remove(), 4000);
+  }
+
+  function loadCollage() {
+    btn.classList.add('spinning');
+    loader.classList.add('active');
+    img.classList.add('loading');
+
+    const ts = Date.now();
+    img.src = '/collage?count=9&_t=' + ts;
+  }
+
+  img.onload = () => {
+    loader.classList.remove('active');
+    img.classList.remove('loading');
+    btn.classList.remove('spinning');
+    burstConfetti();
+    img.style.animation = 'none';
+    img.offsetHeight;
+    img.style.animation = 'popIn 0.5s ease-out';
+  };
+
+  img.onerror = () => {
+    loader.classList.remove('active');
+    img.classList.remove('loading');
+    btn.classList.remove('spinning');
+  };
+
+  btn.addEventListener('click', loadCollage);
+</script>
+</body>
+</html>`
+
+app.get("/collage-app", (c) => {
+  const html = COLLAGE_APP_HTML.replace("{{IMAGE_COUNT}}", String(flatIndex.length))
+  return c.html(html)
+})
 
 app.get("/zips", async (c) => {
   const zipFiles = await listZipFiles()
