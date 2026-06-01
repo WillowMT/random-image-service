@@ -34,6 +34,7 @@ import { cors } from "hono/cors"
 import { logger } from "hono/logger"
 import { BlobReader, ZipReader, BlobWriter } from "@zip.js/zip.js"
 import { stat } from "fs/promises"
+import sharp from "sharp"
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -334,6 +335,70 @@ app.get("/random-image", async (c) => {
 
   return new Response(bytes, {
     headers: { "Content-Type": contentType(selection!.entryPath) },
+  })
+})
+
+// ─── Collage ──────────────────────────────────────────────────────
+
+const TILE_SIZE = 300
+
+app.get("/collage", async (c) => {
+  const countParam = c.req.query("count") || "4"
+  const explicitZip = c.req.query("zip") || undefined
+  const count = parseInt(countParam, 10)
+
+  if (isNaN(count) || count < 1 || count > 30) {
+    return c.json({ error: "count must be between 1 and 30" }, 400)
+  }
+
+  // Collect N random images
+  const picked: Array<{ data: Uint8Array; path: string }> = []
+  for (let i = 0; i < count; i++) {
+    const { selection, error } = await selectRandomImage(explicitZip)
+    if (error) {
+      if (i > 0) break // return partial collage if we have at least one
+      return c.json({ error: error.message }, error.status)
+    }
+    const zipPath = `${ZIP_DIR}/${selection!.zipName}`
+    const bytes = await readZipEntry(zipPath, selection!.entryPath)
+    if (bytes) picked.push({ data: bytes, path: selection!.entryPath })
+  }
+
+  if (picked.length === 0) {
+    return c.json({ error: "No images could be read" }, 500)
+  }
+
+  // Compute grid dimensions
+  const cols = Math.ceil(Math.sqrt(picked.length))
+  const rows = Math.ceil(picked.length / cols)
+  const canvasW = cols * TILE_SIZE
+  const canvasH = rows * TILE_SIZE
+
+  // Resize all images and composite them onto a canvas
+  const composites: sharp.OverlayOptions[] = []
+
+  for (let i = 0; i < picked.length; i++) {
+    const col = i % cols
+    const row = Math.floor(i / cols)
+    const left = col * TILE_SIZE
+    const top = row * TILE_SIZE
+
+    const buf = await sharp(picked[i].data)
+      .resize(TILE_SIZE, TILE_SIZE, { fit: "cover", position: "centre" })
+      .toBuffer()
+
+    composites.push({ input: buf, left, top })
+  }
+
+  const canvas = await sharp({
+    create: { width: canvasW, height: canvasH, channels: 3, background: { r: 20, g: 20, b: 30 } },
+  })
+    .composite(composites)
+    .jpeg({ quality: 85 })
+    .toBuffer()
+
+  return new Response(canvas, {
+    headers: { "Content-Type": "image/jpeg" },
   })
 })
 

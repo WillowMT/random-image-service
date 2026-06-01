@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@zip.js/zip.js": "^2.8.26",
-    "hono": "^4.7.0"
+    "hono": "^4.7.0",
+    "sharp": "^0.34.5"
   }
 }
