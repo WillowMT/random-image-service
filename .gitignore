@@ -1,0 +1,6 @@
+node_modules/
+dist/
+bun.lock
+zips/
+.DS_Store
+*.log
