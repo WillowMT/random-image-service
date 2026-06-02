@@ -16,8 +16,8 @@ COPY --from=builder /app/dist/ ./dist/
 COPY --from=builder /app/node_modules/ ./node_modules/
 
 # Install Claude Code CLI for story generation
-RUN apt-get update -qq && apt-get install -y -qq git && \
-    npm install -g @anthropic-ai/claude-code 2>/dev/null; \
+RUN apt-get update -qq && apt-get install -y -qq git nodejs npm && \
+    npm install -g @anthropic-ai/claude-code && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Story temp directory
@@ -31,4 +31,4 @@ ENV STORY_IMAGE_COUNT=9
 
 EXPOSE 3000
 
-CMD ["bun", "run", "dist/index.js"]
+CMD ["sh", "-c", ". /root/.claude-env 2>/dev/null; exec bun run dist/index.js"]
