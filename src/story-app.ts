@@ -493,10 +493,10 @@ function renderStory(data) {
   // Parse title from markdown ## Title
   let title = 'Untitled Story'
   let body = data.story
-  const titleMatch = data.story.match(/^##\s+(.+)/m)
+  const titleMatch = data.story.match(/^##\\s+(.+)/m)
   if (titleMatch) {
     title = titleMatch[1]
-    body = data.story.replace(/^##\s+.+\n*/m, '').trim()
+    body = data.story.replace(/^##\\s+.+\\n*/m, '').trim()
   }
 
   content.innerHTML = \`
@@ -528,11 +528,11 @@ function renderHistory(stories, total) {
   historyList.innerHTML = stories.map(s => {
     // Extract title from preview
     let title = s.story_preview || 'Untitled'
-    const titleMatch = (s.story_preview || '').match(/^##\s+(.+)/)
+    const titleMatch = (s.story_preview || '').match(/^##\\s+(.+)/)
     if (titleMatch) title = titleMatch[1]
 
     const previewText = titleMatch
-      ? (s.story_preview || '').replace(/^##\s+.+\n*/m, '').trim().slice(0, 120)
+      ? (s.story_preview || '').replace(/^##\\s+.+\\n*/m, '').trim().slice(0, 120)
       : (s.story_preview || '').slice(0, 120)
 
     const isActive = s.id === currentId ? ' active' : ''
