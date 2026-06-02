@@ -36,6 +36,8 @@ import { BlobReader, ZipReader, BlobWriter } from "@zip.js/zip.js"
 import { stat } from "fs/promises"
 import sharp from "sharp"
 import { generateStory, STORY_IMAGE_COUNT, type StoryResult } from "./story"
+import { saveStory, getRecentStories, getStory, getStoryCount } from "./story-db"
+import { STORY_APP_HTML } from "./story-app"
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -810,28 +812,48 @@ app.get("/zips/:name", async (c) => {
 // ─── Story generation ─────────────────────────────────────────────
 
 /**
- * POST /api/story
- *
- * Randomly selects N images across different ZIP archives,
- * generates a collage, creates a fictional story with Claude Code,
- * and returns JSON with the collage (base64) + story text + image metadata.
- *
- * Query params:
- *   count  — number of images to use (default: 9, max: 16)
+ * Shared handler for story generation.
+ * Generates a story, saves it to SQLite, returns the result.
+ */
+async function handleStoryRequest(c: any, count: number) {
+  try {
+    const result: StoryResult = await generateStory(count)
+
+    // Save to SQLite
+    let recordId: number | null = null
+    try {
+      recordId = saveStory({
+        story: result.story,
+        collageBase64: result.collageBase64,
+        images: result.images,
+        provider: result.provider,
+        imageCount: result.images.length,
+      })
+    } catch (dbErr) {
+      console.error("[api/story] DB save failed:", dbErr)
+    }
+
+    // Return result with the record ID
+    return c.json({
+      ...result,
+      id: recordId,
+      total_stories: recordId !== null ? getStoryCount() : undefined,
+    })
+  } catch (err) {
+    console.error("[api/story] Error:", err)
+    return c.json({ error: "Story generation failed", details: String(err) }, 500)
+  }
+}
+
+/**
+ * POST /api/story — generate a new story
  */
 app.post("/api/story", async (c) => {
   const countParam = c.req.query("count")
   let count = countParam ? parseInt(countParam, 10) : STORY_IMAGE_COUNT
   if (isNaN(count) || count < 2) count = 2
   if (count > 16) count = 16
-
-  try {
-    const result: StoryResult = await generateStory(count)
-    return c.json(result)
-  } catch (err) {
-    console.error("[api/story] Error:", err)
-    return c.json({ error: "Story generation failed", details: String(err) }, 500)
-  }
+  return handleStoryRequest(c, count)
 })
 
 /**
@@ -842,14 +864,63 @@ app.get("/api/story", async (c) => {
   let count = countParam ? parseInt(countParam, 10) : STORY_IMAGE_COUNT
   if (isNaN(count) || count < 2) count = 2
   if (count > 16) count = 16
+  return handleStoryRequest(c, count)
+})
+
+/**
+ * GET /api/story/history — get recent story generations
+ */
+app.get("/api/story/history", (c) => {
+  const limitParam = c.req.query("limit")
+  const offsetParam = c.req.query("offset")
+  const limit = limitParam ? Math.min(parseInt(limitParam, 10) || 20, 100) : 20
+  const offset = offsetParam ? parseInt(offsetParam, 10) || 0 : 0
 
   try {
-    const result: StoryResult = await generateStory(count)
-    return c.json(result)
+    const stories = getRecentStories(limit, offset)
+    const total = getStoryCount()
+    return c.json({ stories, total, limit, offset })
   } catch (err) {
-    console.error("[api/story] Error:", err)
-    return c.json({ error: "Story generation failed", details: String(err) }, 500)
+    console.error("[api/story/history] Error:", err)
+    return c.json({ error: "Failed to fetch history", details: String(err) }, 500)
   }
+})
+
+/**
+ * GET /api/story/:id — get a specific story by ID
+ */
+app.get("/api/story/:id", (c) => {
+  const id = parseInt(c.req.param("id"), 10)
+  if (isNaN(id)) {
+    return c.json({ error: "Invalid story ID" }, 400)
+  }
+
+  try {
+    const record = getStory(id)
+    if (!record) {
+      return c.json({ error: "Story not found" }, 404)
+    }
+    // Parse images JSON for the client
+    return c.json({
+      id: record.id,
+      created_at: record.created_at,
+      story: record.story,
+      collageBase64: record.collage_base64,
+      images: JSON.parse(record.images),
+      provider: record.provider,
+      imageCount: record.image_count,
+    })
+  } catch (err) {
+    console.error("[api/story/:id] Error:", err)
+    return c.json({ error: "Failed to fetch story" }, 500)
+  }
+})
+
+// ─── Story App (SPA) ────────────────────────────────────────────
+
+app.get("/story-app", (c) => {
+  const html = STORY_APP_HTML
+  return c.html(html)
 })
 
 // ─── Start ───────────────────────────────────────────────────────

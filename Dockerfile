@@ -20,14 +20,15 @@ RUN apt-get update -qq && apt-get install -y -qq git nodejs npm && \
     npm install -g @anthropic-ai/claude-code && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Story temp directory
-RUN mkdir -p /app/zips /app/tmp/stories
+# Story temp directory + DB
+RUN mkdir -p /app/zips /app/tmp/stories /app/data
 
-ENV ZIP_DIR=/app/zips
+ENV ZIP_DIR=/app/images/zips
 ENV SELECTION_MODE=flat
 ENV PORT=3000
 ENV STORY_TEMP_DIR=/app/tmp/stories
 ENV STORY_IMAGE_COUNT=9
+ENV STORY_DB_PATH=/app/data/stories.db
 
 EXPOSE 3000
 
