@@ -69,7 +69,7 @@ function safeFilename(name: string): string {
 
 // ─── ZIP scanning (reuses same pattern from index.ts) ─────────────
 
-async function getZipIndex(zipName: string): Promise<string[] | null> {
+export async function getZipIndex(zipName: string): Promise<string[] | null> {
   const zipPath = join(ZIP_DIR, zipName)
   try {
     await stat(zipPath)
@@ -88,7 +88,7 @@ async function getZipIndex(zipName: string): Promise<string[] | null> {
   }
 }
 
-async function listZipFiles(): Promise<string[]> {
+export async function listZipFiles(): Promise<string[]> {
   try {
     const entries = await readdir(ZIP_DIR)
     return entries.filter((e) => e.toLowerCase().endsWith(".zip")).sort()
@@ -97,7 +97,7 @@ async function listZipFiles(): Promise<string[]> {
   }
 }
 
-async function readZipEntry(zipPath: string, entryPath: string): Promise<Uint8Array | null> {
+export async function readZipEntry(zipPath: string, entryPath: string): Promise<Uint8Array | null> {
   try {
     const reader = new ZipReader(new BlobReader(Bun.file(zipPath)))
     const entries = await reader.getEntries()

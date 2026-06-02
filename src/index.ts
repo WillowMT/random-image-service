@@ -35,9 +35,11 @@ import { logger } from "hono/logger"
 import { BlobReader, ZipReader, BlobWriter } from "@zip.js/zip.js"
 import { stat } from "fs/promises"
 import sharp from "sharp"
-import { generateStory, STORY_IMAGE_COUNT, type StoryResult } from "./story"
+import { generateStory, pickDiverseImages, readZipEntry, STORY_IMAGE_COUNT, type StoryResult } from "./story"
 import { saveStory, getRecentStories, getStory, getStoryCount } from "./story-db"
 import { STORY_APP_HTML } from "./story-app"
+import { saveGame } from "./game-db"
+import { GAME_APP_HTML } from "./game-app"
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -916,11 +918,94 @@ app.get("/api/story/:id", (c) => {
   }
 })
 
+// ─── Game generation ──────────────────────────────────────────────
+
+const GAME_TILE = 400
+const GAME_QUALITY = 90
+
+app.get("/api/game", async (c) => {
+  let count = parseInt(c.req.query("count") || "6", 10)
+  if (isNaN(count) || count < 2) count = 2
+  if (count > 12) count = 12
+
+  try {
+    const picks = await pickDiverseImages(count)
+    if (picks.length === 0) {
+      return c.json({ error: "No images available in the archives" }, 500)
+    }
+
+    const composites: sharp.OverlayOptions[] = []
+    const successfulPicks: Array<{ zipName: string; entryPath: string }> = []
+    // Pre-decide which side is correct for each pick
+    const sideDecisions: Array<"left" | "right"> = []
+
+    for (const { zipName, entryPath } of picks) {
+      const zipPath = `${ZIP_DIR}/${zipName}`
+      const bytes = await readZipEntry(zipPath, entryPath)
+      if (!bytes) continue
+
+      const correctSide = Math.random() < 0.5 ? "left" : "right"
+      sideDecisions.push(correctSide)
+
+      const row = successfulPicks.length
+      const [tileA, tileB] = await Promise.all([
+        sharp(bytes)
+          .resize(GAME_TILE, GAME_TILE, { fit: "cover", position: "centre" })
+          .blur(20)
+          .toBuffer(),
+        sharp(bytes)
+          .resize(GAME_TILE, GAME_TILE, { fit: "cover", position: "centre" })
+          .toBuffer(),
+      ])
+
+      // Place based on correctSide: left tile is blurred, right is original
+      // If correctSide is "left", swap them so original is on the left
+      const leftTile = correctSide === "left" ? tileB : tileA   // original on left? use tileB (original)
+      const rightTile = correctSide === "left" ? tileA : tileB  // blurred on right? use tileA (blurred)
+
+      composites.push({ input: leftTile, left: 0, top: row * GAME_TILE })
+      composites.push({ input: rightTile, left: GAME_TILE, top: row * GAME_TILE })
+      successfulPicks.push({ zipName, entryPath })
+    }
+
+    if (successfulPicks.length === 0) {
+      return c.json({ error: "No images could be read from archives" }, 500)
+    }
+
+    const canvasH = successfulPicks.length * GAME_TILE
+    const canvas = await sharp({
+      create: { width: 2 * GAME_TILE, height: canvasH, channels: 3, background: { r: 20, g: 20, b: 30 } },
+    })
+      .composite(composites)
+      .jpeg({ quality: GAME_QUALITY })
+      .toBuffer()
+
+    const collageBase64 = canvas.toString("base64")
+    const pairs = sideDecisions.map((correctSide, i) => ({ imageIndex: i, correctSide }))
+    const images = successfulPicks.map((p) => ({ zip: p.zipName, path: p.entryPath }))
+
+    try {
+      saveGame({ imageCount: successfulPicks.length, gameData: { pairs, images, imageCount: successfulPicks.length } })
+    } catch (dbErr) {
+      console.error("[api/game] DB save failed:", dbErr)
+    }
+
+    return c.json({ collageBase64, pairs, imageCount: successfulPicks.length, images })
+  } catch (err) {
+    console.error("[api/game] Error:", err)
+    return c.json({ error: "Game generation failed", details: String(err) }, 500)
+  }
+})
+
 // ─── Story App (SPA) ────────────────────────────────────────────
 
 app.get("/story-app", (c) => {
   const html = STORY_APP_HTML
   return c.html(html)
+})
+
+app.get("/game-app", (c) => {
+  return c.html(GAME_APP_HTML)
 })
 
 // ─── Start ───────────────────────────────────────────────────────
