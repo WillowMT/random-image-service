@@ -35,6 +35,7 @@ import { logger } from "hono/logger"
 import { BlobReader, ZipReader, BlobWriter } from "@zip.js/zip.js"
 import { stat } from "fs/promises"
 import sharp from "sharp"
+import { generateStory, STORY_IMAGE_COUNT, type StoryResult } from "./story"
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -806,6 +807,51 @@ app.get("/zips/:name", async (c) => {
   }
 })
 
+// ─── Story generation ─────────────────────────────────────────────
+
+/**
+ * POST /api/story
+ *
+ * Randomly selects N images across different ZIP archives,
+ * generates a collage, creates a fictional story with Claude Code,
+ * and returns JSON with the collage (base64) + story text + image metadata.
+ *
+ * Query params:
+ *   count  — number of images to use (default: 9, max: 16)
+ */
+app.post("/api/story", async (c) => {
+  const countParam = c.req.query("count")
+  let count = countParam ? parseInt(countParam, 10) : STORY_IMAGE_COUNT
+  if (isNaN(count) || count < 2) count = 2
+  if (count > 16) count = 16
+
+  try {
+    const result: StoryResult = await generateStory(count)
+    return c.json(result)
+  } catch (err) {
+    console.error("[api/story] Error:", err)
+    return c.json({ error: "Story generation failed", details: String(err) }, 500)
+  }
+})
+
+/**
+ * GET /api/story — convenience alias, same as POST
+ */
+app.get("/api/story", async (c) => {
+  const countParam = c.req.query("count")
+  let count = countParam ? parseInt(countParam, 10) : STORY_IMAGE_COUNT
+  if (isNaN(count) || count < 2) count = 2
+  if (count > 16) count = 16
+
+  try {
+    const result: StoryResult = await generateStory(count)
+    return c.json(result)
+  } catch (err) {
+    console.error("[api/story] Error:", err)
+    return c.json({ error: "Story generation failed", details: String(err) }, 500)
+  }
+})
+
 // ─── Start ───────────────────────────────────────────────────────
 
 const PORT = parseInt(process.env.PORT || "3000", 10)
@@ -813,7 +859,11 @@ const PORT = parseInt(process.env.PORT || "3000", 10)
 // Start the server — note: we do NOT export default app to prevent Bun from
 // trying to start a second server on the same port.
 console.log(`[server] Starting on http://0.0.0.0:${PORT}...`)
-Bun.serve({ fetch: app.fetch, port: PORT })
+Bun.serve({
+  fetch: app.fetch,
+  port: PORT,
+  idleTimeout: 120, // allow up to 120s for story generation via Claude Code
+})
 console.log(`[server] Listening on http://0.0.0.0:${PORT}`)
 
 // Warm cache in background — indexing happens after server is already accepting requests
